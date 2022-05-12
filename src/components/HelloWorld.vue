@@ -11,6 +11,7 @@
 //import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
+import { io } from "socket.io-client";
 
 // import { saveAs } from 'file-saver';
 // import * as CSG from 'csg';
@@ -44,6 +45,10 @@ export default {
         // exportObjects: exportObjects,
         // exportSceneObject: exportSceneObject
       },
+      socket: {},
+      clients: new Object(),
+      id: null,
+      voxel: null,
     };
   },
   // components: { BarraHerramientas},
@@ -199,16 +204,19 @@ export default {
 
           // create cube
         } else {
-          const voxel = new THREE.Mesh(this.cubeGeo, this.cubeMaterial);
+          this.voxel = new THREE.Mesh(this.cubeGeo, this.cubeMaterial);
 
-          voxel.position.copy(intersect.point).add(intersect.face.normal);
-          voxel.position
+          this.voxel.position.copy(intersect.point).add(intersect.face.normal);
+          this.voxel.position
             .divideScalar(50)
             .floor()
             .multiplyScalar(50)
             .addScalar(25);
-          console.log(voxel.position);
-          this.scene.add(voxel);
+          console.log(this.voxel.position);
+
+          this.socket.emit("move", this.voxel.position);
+
+          this.scene.add(this.voxel);
 
           // const cubeMaterial2 = new THREE.MeshPhongMaterial({
           //   color: 0x000000,
@@ -218,10 +226,10 @@ export default {
           // contorno.position.copy(voxel.position);
           // this.scene.add(contorno);
 
-          const box = new THREE.BoxHelper(voxel, 0x000000);
+          const box = new THREE.BoxHelper(this.voxel, 0x000000);
           this.scene.add(box);
 
-          this.objects.push(voxel);
+          this.objects.push(this.voxel);
         }
 
         // this.animate();
@@ -304,8 +312,112 @@ export default {
   mounted() {
     this.init();
     this.animate();
+
     // console.log(this.objects);
     // console.log(this.scene);
+  },
+  created() {
+    this.socket = io("http://localhost:8080");
+
+    this.socket.on("introduction", (_id, _clientNum, _ids) => {
+      for (let i = 0; i < _ids.length; i++) {
+        if (_ids[i] != _id) {
+          this.clients[_ids[i]] = {
+            mesh: new THREE.Mesh(
+              new THREE.BoxGeometry(50, 50, 50),
+              new THREE.MeshNormalMaterial()
+            ),
+          };
+
+          // console.log(this.clients[_ids[i]].mesh);
+          //Add initial users to the scene
+          // this.scene.add(this.clients[_ids[i]].mesh);
+        }
+      }
+
+      console.log(this.clients);
+
+      this.id = _id;
+      console.log("Mi ID es: " + this.id);
+    });
+    this.socket.on(
+      "userPositionsVoxels",
+      (clientCount, _id, _ids, voxelPosition) => {
+        console.log(voxelPosition);
+        // let alreadyHasUser = false;
+        console.log(this.id, _id);
+        console.log(this.clients);
+        for (let i = 0; i < Object.keys(this.clients).length; i++) {
+          if (Object.keys(this.clients)[i] == _id) {
+            // alreadyHasUser = true;
+            // console.log("es mio cliente");
+            break;
+          }
+        }
+        if (_id != this.id) {
+          console.log("id del que puso el voxel:" + _id);
+          this.clients[_id] = {
+            mesh: new THREE.Mesh(this.cubeGeo, this.cubeMaterial),
+          };
+
+          // contorno: new THREE.BoxHelper(mesh, 0x000000),
+
+          console.log("recibiendo posicion voxel");
+          console.log(this.clients[_id].contorno);
+
+          //Add initial users to the scene
+          // let contorno = THREE.BoxHelper(this.clients[_id].mesh, 0x000000);
+          this.clients[_id].mesh.position.x = voxelPosition.x;
+          this.clients[_id].mesh.position.y = voxelPosition.y;
+          this.clients[_id].mesh.position.z = voxelPosition.z;
+          let contorno = new THREE.BoxHelper(this.clients[_id].mesh, 0x000000);
+
+          // contorno.position.x = voxelPosition.x;
+          // contorno.position.y = voxelPosition.y;
+          // contorno.position.z = voxelPosition.z;
+          this.scene.add(this.clients[_id].mesh);
+          this.scene.add(contorno);
+          // this.scene.add(contorno);
+          this.objects.push(this.clients[_id].mesh);
+          // this.scene.add(this.clients[_id].contorno);
+        }
+      }
+    );
+    this.socket.on("newUserConnected", (clientCount, _id) => {
+      console.log(clientCount + " usuarios conectados");
+      let alreadyHasUser = false;
+      for (let i = 0; i < Object.keys(this.clients).length; i++) {
+        if (Object.keys(this.clients)[i] == _id) {
+          alreadyHasUser = true;
+          break;
+        }
+      }
+      if (_id != this.id && !alreadyHasUser) {
+        console.log("Llego alguien al server!!! con el id: " + _id);
+        this.clients[_id] = {
+          mesh: new THREE.Mesh(
+            new THREE.BoxGeometry(50, 50, 50),
+            new THREE.MeshNormalMaterial()
+          ),
+        };
+
+        //Add initial users to the scene
+        // this.clients[_id].mesh.position.x = Math.random() * (1000 - 0) + 0;
+        // this.scene.add(this.clients[_id].mesh);
+        console.log(this.clients[_id].mesh);
+      }
+    });
+    this.socket.on("userDisconnected", (clientCount, _id) => {
+      //Update the data from the server
+      // document.getElementById("numUsers").textContent = clientCount;
+
+      if (_id != this.id) {
+        console.log("Y se marcho!!, el usuario con id: " + _id);
+        // console.log(this.clients);
+        this.scene.remove(this.clients[_id].mesh);
+        delete this.clients[_id];
+      }
+    });
   },
 };
 </script>
